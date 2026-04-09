@@ -25,6 +25,13 @@ String objectiveText = "Trova i 4 Frammenti di Memoria.";
 String endingTitle = "";
 String endingBody = "";
 
+final float ENTITY_CATCH_DISTANCE_EXPLORE = 95;
+final float ENTITY_CATCH_DISTANCE_ESCAPE = 105;
+final float EXIT_REACH_DISTANCE = 150;
+final int ENTITY_TELEPORT_MEMORY_THRESHOLD = 3;
+final int ENTITY_TELEPORT_FRAME_INTERVAL = 360;
+final float ENTITY_TELEPORT_RADIUS = 300;
+
 // =========================
 // MAPPA E MONDO
 // =========================
@@ -84,12 +91,12 @@ boolean justSpace = false;
 float fear = 0.0;
 String[] whispers = {
   "Non stai tornando indietro. Il corridoio sta tornando su di te.",
-  "La tua memoria non ti appartiene piu'.",
+  "La tua memoria non ti appartiene più.",
   "Il monolite ha il tuo stesso respiro.",
-  "Hai gia' fatto questa fuga 47 volte.",
+  "Hai già fatto questa fuga 47 volte.",
   "Le luci non si spengono: ti stanno misurando.",
   "Non cercare l'uscita. Cerca chi eri.",
-  "Ogni porta e' una versione di te che non ha retto.",
+  "Ogni porta è una versione di te che non ha retto.",
   "Quando senti silenzio... stai ascoltando lui."
 };
 String activeWhisper = "";
@@ -235,7 +242,7 @@ void drawTitle() {
 
   textSize(22);
   fill(220);
-  text("Sei l'Archivista 9.\nHai perso i ricordi dell'ultima notte.\nIn questo settore ogni stanza e' una versione di te.", width/2, height/2 - 45);
+  text("Sei l'Archivista 9.\nHai perso i ricordi dell'ultima notte.\nIn questo settore ogni stanza è una versione di te.", width/2, height/2 - 45);
 
   textSize(20);
   fill(180, 210, 255);
@@ -275,7 +282,7 @@ void runExploration() {
     renderEntity();
   }
 
-  if (entityAwake && dist(cam.position.x, cam.position.z, entityPos.x, entityPos.z) < 95) {
+  if (entityAwake && dist(cam.position.x, cam.position.z, entityPos.x, entityPos.z) < ENTITY_CATCH_DISTANCE_EXPLORE) {
     triggerEnding(
       "FINE // ASSORBIMENTO",
       "Hai provato a correre, ma il corridoio\nha scelto il tuo passo.\n\nL'Archivio ora ricorda al posto tuo."
@@ -302,17 +309,17 @@ void runEscape() {
   updateEntity(true);
   renderEntity();
 
-  if (dist(cam.position.x, cam.position.z, entityPos.x, entityPos.z) < 105) {
+  if (dist(cam.position.x, cam.position.z, entityPos.x, entityPos.z) < ENTITY_CATCH_DISTANCE_ESCAPE) {
     triggerEnding(
       "FINE // SPECCHIO CHIUSO",
       "Hai rifiutato il monolite,\nma non il suo riflesso.\n\nNel settore restano due respiri: il tuo e il suo."
       );
   }
 
-  if (dist(cam.position.x, cam.position.z, exitPos.x, exitPos.z) < 150) {
+  if (dist(cam.position.x, cam.position.z, exitPos.x, exitPos.z) < EXIT_REACH_DISTANCE) {
     triggerEnding(
       "FINE // FUGA IMPERFETTA",
-      "La porta si e' aperta.\nFuori piove luce bianca.\n\nHai salvato il corpo,\nma una copia di te e' rimasta dentro."
+      "La porta si è aperta.\nFuori piove luce bianca.\n\nHai salvato il corpo,\nma una copia di te è rimasta dentro."
       );
   }
 
@@ -420,7 +427,7 @@ void onMemoryRecovered() {
     objectiveText = "Ne restano " + (totalMemories - memoriesRecovered) + ".";
   } else {
     objectiveText = "Raggiungi il Monolite al centro e scegli chi vuoi essere.";
-    activeWhisper = "Ora non puoi piu' fingere.";
+    activeWhisper = "Ora non puoi più fingere.";
     whisperUntil = frameCount + 220;
   }
 }
@@ -429,15 +436,21 @@ void shiftArchitecture() {
   if (architectureShifted) return;
   architectureShifted = true;
 
-  setCell(5, 3, 1);
-  setCell(5, 4, 1);
-  setCell(10, 9, 1);
-  setCell(14, 13, 1);
+  // Sigilla alcuni corridoi familiari per spezzare il percorso memorizzato.
+  int[][] closePassages = {
+    {5, 3}, {5, 4}, {10, 9}, {14, 13}
+  };
+  // Apre nuovi varchi innaturali per creare un layout "impossibile".
+  int[][] openPassages = {
+    {7, 2}, {11, 8}, {2, 14}, {14, 10}
+  };
 
-  setCell(7, 2, 0);
-  setCell(11, 8, 0);
-  setCell(2, 14, 0);
-  setCell(14, 10, 0);
+  for (int i = 0; i < closePassages.length; i++) {
+    setCell(closePassages[i][0], closePassages[i][1], 1);
+  }
+  for (int i = 0; i < openPassages.length; i++) {
+    setCell(openPassages[i][0], openPassages[i][1], 0);
+  }
 }
 
 void setCell(int x, int z, int value) {
@@ -455,14 +468,14 @@ void handleAltarChoice() {
     if (justE) {
       triggerEnding(
         "FINE // EPIFANIA VUOTA",
-        "Hai scelto di ricordare tutto.\n\nOra conosci ogni dolore,\nogni menzogna, ogni versione di te.\nNessuna e' sopravvissuta."
+        "Hai scelto di ricordare tutto.\n\nOra conosci ogni dolore,\nogni menzogna, ogni versione di te.\nNessuna è sopravvissuta."
         );
     } else if (justR) {
       gameState = STATE_ESCAPE;
       chapterTitle = "CAPITOLO III // USCITA ROSSA";
       objectiveText = "Corri verso la porta del settore prima che ti raggiunga.";
       entityAwake = true;
-      activeWhisper = "Le tue gambe sono veloci. Il corridoio di piu'.";
+      activeWhisper = "Le tue gambe sono veloci. Il corridoio di più.";
       whisperUntil = frameCount + 180;
     }
   }
@@ -487,10 +500,10 @@ void updateEntity(boolean aggressive) {
   float speed = aggressive ? 5.6 : 2.9 + fear * 0.7;
   entityPos.add(dx * speed, 0, dz * speed);
 
-  if (!aggressive && memoriesRecovered >= 3 && frameCount % 360 == 0) {
+  if (!aggressive && memoriesRecovered >= ENTITY_TELEPORT_MEMORY_THRESHOLD && frameCount % ENTITY_TELEPORT_FRAME_INTERVAL == 0) {
     float ang = random(TWO_PI);
-    entityPos.x = cam.position.x + cos(ang) * 300;
-    entityPos.z = cam.position.z + sin(ang) * 300;
+    entityPos.x = cam.position.x + cos(ang) * ENTITY_TELEPORT_RADIUS;
+    entityPos.z = cam.position.z + sin(ang) * ENTITY_TELEPORT_RADIUS;
   }
 }
 
