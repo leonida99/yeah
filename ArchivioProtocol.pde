@@ -2,233 +2,398 @@ import queasycam.*;
 import ddf.minim.*;
 import ddf.minim.ugens.*;
 
+// --- ENGINE ---
 QueasyCam cam;
 Minim minim;
 AudioOutput out;
-Oscil hum;
+Oscil humTone;
 
-int state = 0; // 0 intro, 1 game, 2 win, 3 lose
-int block = 220;
-int W = 20, H = 20;
-int[][] map = new int[H][W]; // 0 floor,1 wall,2 exit locked
-PVector spawn, exitPos;
-boolean exitUnlocked = false;
-int fuses = 0;
-int needFuses = 3;
+// --- ASSET PROCEDURALI ---
+PGraphics wallTex, floorTex, ceilTex;
 
-PVector enemy;
-String msg = "Trova 3 fusibili";
+// --- MAPPA (15x15) ---
+// 1=Muro, 0=Vuoto, 2=Terminale, 3=Spawn/Uscita
+int blockSize = 300;
+int[][] levelMap = {
+  {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+  {1,3,0,0,1,0,0,0,0,0,1,2,0,0,1},
+  {1,1,1,0,1,0,1,1,1,0,1,1,1,0,1},
+  {1,0,0,0,0,0,1,2,1,0,0,0,0,0,1},
+  {1,0,1,1,1,0,1,0,1,1,1,1,1,0,1},
+  {1,0,1,0,0,0,0,0,0,0,0,0,1,0,1},
+  {1,0,1,0,1,1,1,0,1,1,1,0,1,0,1},
+  {1,0,0,0,1,0,0,0,0,0,1,0,0,0,1},
+  {1,1,1,0,1,0,1,1,1,0,1,0,1,1,1},
+  {1,0,0,0,0,0,1,0,0,0,0,0,0,0,1},
+  {1,0,1,1,1,1,1,0,1,1,1,1,1,0,1},
+  {1,0,0,0,1,0,0,0,1,2,0,0,0,0,1},
+  {1,1,1,0,1,0,1,1,1,1,1,1,1,1,1},
+  {1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+  {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
+};
+
+// --- GAMEPLAY STATS ---
+int state = 0; // 0: Intro, 1: Esplorazione, 2: Fuga, 3: Finale
+int terminalsFixed = 0;
+int maxTerminals = 3;
+PVector spawnPos;
+ArrayList<PVector> terminals = new ArrayList<PVector>();
+String narrativeText = "Trova e riavvia i 3 Terminali.";
+
+// --- ENTITA' ---
+PVector entityPos;
+PVector prevPos;
+boolean interactPressed = false;
 
 void setup() {
   fullScreen(P3D);
   noCursor();
-  frameRate(60);
+  textureWrap(REPEAT);
 
-  minim = new Minim(this);
-  out = minim.getLineOut();
-  hum = new Oscil(45, 0.08, Waves.SAW);
-  hum.patch(out);
+  generateTextures();
 
   cam = new QueasyCam(this);
   cam.speed = 4.0;
-  cam.sensitivity = 0.55;
+  cam.sensitivity = 0.6;
 
-  genMap();
-  cam.position = spawn.copy();
-  enemy = new PVector((W-3)*block + block/2, 0, (H-3)*block + block/2);
+  minim = new Minim(this);
+  out = minim.getLineOut();
+  humTone = new Oscil(60, 0.1f, Waves.SINE);
+  humTone.patch(out);
+
+  parseMap();
+  prevPos = cam.position.copy();
 }
 
 void draw() {
   if (state == 0) drawIntro();
-  else if (state == 1) runGame();
-  else drawEnd();
+  else if (state == 1) playExplorationPhase();
+  else if (state == 2) playChasePhase();
+  else if (state == 3) drawOutro();
 }
 
 void drawIntro() {
   background(0);
   hint(DISABLE_DEPTH_TEST);
+  pushMatrix();
   camera();
+  noLights();
+
+  fill(255);
+  textAlign(CENTER, CENTER);
+  textSize(32);
+  text("PROTOCOLLO DI RECUPERO DATI", width/2, height/2 - 50);
+  textSize(20);
+  text("Sei nel Settore 0.\nRiavvia i 3 terminali per sbloccare l'uscita.\nUsa [W A S D] per muoverti. Mouse per la visuale.\n\nPremi [SPAZIO] per iniziare.", width/2, height/2 + 50);
+
+  popMatrix();
+  hint(ENABLE_DEPTH_TEST);
+
+  if (keyPressed && key == ' ') {
+    state = 1;
+    humTone.setFrequency(55);
+  }
+}
+
+void playExplorationPhase() {
+  background(200, 200, 150);
+  ambientLight(220, 220, 180);
+
+  handlePhysics();
+  renderMap();
+  handleTerminals();
+  drawHUD();
+}
+
+void playChasePhase() {
+  background(15, 0, 0);
+  ambientLight(20, 0, 0);
+
+  float alarm = (sin(frameCount * 0.1) + 1) * 127;
+  pointLight(alarm, 0, 0, cam.position.x, cam.position.y, cam.position.z);
+
+  handlePhysics();
+  renderMap();
+
+  PVector dir = PVector.sub(new PVector(cam.position.x, 0, cam.position.z), new PVector(entityPos.x, 0, entityPos.z));
+  if (dir.magSq() > 0.0001) {
+    dir.normalize();
+  }
+  dir.mult(4.2);
+  entityPos.add(dir.x, 0, dir.z);
+
+  pushMatrix();
+  translate(entityPos.x, -100, entityPos.z);
+  rotateX(frameCount * 0.2);
+  rotateY(frameCount * 0.2);
+  fill(0);
+  stroke(255, 0, 0);
+  strokeWeight(3);
+  box(80 + random(-10, 10));
+  popMatrix();
+
+  pushMatrix();
+  translate(spawnPos.x, -100, spawnPos.z);
+  fill(0, 255, 0);
+  box(100);
+  popMatrix();
+
+  if (dist(cam.position.x, cam.position.z, entityPos.x, entityPos.z) < 100) {
+    narrativeText = "L'ARCHIVIO TI HA INGHIOTTITO.";
+    state = 3;
+  }
+  if (dist(cam.position.x, cam.position.z, spawnPos.x, spawnPos.z) < 150) {
+    narrativeText = "CONNESSIONE INTERROTTA.\nSopravvivenza confermata.";
+    state = 3;
+  }
+
+  drawHUD();
+}
+
+void drawOutro() {
+  background(0);
+  hint(DISABLE_DEPTH_TEST);
+  pushMatrix();
+  camera();
+  noLights();
+
   fill(255);
   textAlign(CENTER, CENTER);
   textSize(40);
-  text("ARCHIVE PROTOCOL", width/2, height/2 - 80);
-  textSize(22);
-  text("WASD muovi, mouse guarda, E interagisci\nPremi SPAZIO per iniziare", width/2, height/2);
-  hint(ENABLE_DEPTH_TEST);
-
-  if (keyPressed && key == ' ') state = 1;
-}
-
-void runGame() {
-  background(150, 145, 130);
-  ambientLight(150, 145, 130);
-
-  renderMap();
-  doCollision();
-  updateEnemy();
-  drawHUD();
-
-  if (dist(cam.position.x, cam.position.z, enemy.x, enemy.z) < 100) {
-    msg = "TI HA PRESO";
-    state = 3;
-  }
-  if (exitUnlocked && dist(cam.position.x, cam.position.z, exitPos.x, exitPos.z) < 140) {
-    msg = "SEI SCAPPATO";
-    state = 2;
-  }
-}
-
-void drawEnd() {
-  background(0);
-  hint(DISABLE_DEPTH_TEST);
-  camera();
-  fill(255);
-  textAlign(CENTER, CENTER);
-  textSize(42);
-  text(msg, width/2, height/2);
+  text(narrativeText, width/2, height/2);
   textSize(20);
-  text("ESC per uscire", width/2, height/2 + 70);
+  text("Premi ESC per uscire.", width/2, height/2 + 80);
+
+  popMatrix();
   hint(ENABLE_DEPTH_TEST);
 }
 
-void genMap() {
-  for (int z=0; z<H; z++) for (int x=0; x<W; x++) map[z][x] = 1;
+void parseMap() {
+  for (int z = 0; z < levelMap.length; z++) {
+    for (int x = 0; x < levelMap[0].length; x++) {
+      if (levelMap[z][x] == 3) {
+        spawnPos = new PVector(x * blockSize + blockSize/2, -100, z * blockSize + blockSize/2);
+        cam.position = spawnPos.copy();
+      }
+      if (levelMap[z][x] == 2) {
+        terminals.add(new PVector(x * blockSize + blockSize/2, -50, z * blockSize + blockSize/2));
+        levelMap[z][x] = 0;
+      }
+    }
+  }
+  entityPos = new PVector((levelMap[0].length/2) * blockSize, 0, (levelMap.length/2) * blockSize);
+}
 
-  for (int z=1; z<H-1; z++) for (int x=1; x<W-1; x++) map[z][x] = 0;
+void handlePhysics() {
+  float pR = 40;
+  boolean hitX = false;
+  boolean hitZ = false;
 
-  // muri interni
-  for (int z=2; z<18; z++) map[z][6] = 1;
-  for (int z=3; z<17; z++) map[z][13] = 1;
-  for (int x=2; x<18; x++) map[8][x] = 1;
-  for (int x=2; x<18; x++) map[14][x] = 1;
+  if (isWall(cam.position.x + pR, prevPos.z) || isWall(cam.position.x - pR, prevPos.z)) hitX = true;
+  if (isWall(prevPos.x, cam.position.z + pR) || isWall(prevPos.x, cam.position.z - pR)) hitZ = true;
 
-  // passaggi
-  map[5][6]=0; map[11][6]=0; map[16][6]=0;
-  map[4][13]=0; map[10][13]=0; map[15][13]=0;
-  map[8][4]=0; map[8][10]=0; map[8][16]=0;
-  map[14][5]=0; map[14][12]=0; map[14][17]=0;
+  if (hitX) cam.position.x = prevPos.x;
+  if (hitZ) cam.position.z = prevPos.z;
+  if (isWall(cam.position.x, cam.position.z)) cam.position = prevPos.copy();
 
-  spawn = new PVector(2*block + block/2, 0, 2*block + block/2);
-  exitPos = new PVector(10*block + block/2, 0, 1*block + block/2);
-  map[1][10] = 2; // exit locked
+  prevPos = cam.position.copy();
+}
+
+boolean isWall(float px, float pz) {
+  int gX = constrain(round((px - blockSize/2) / blockSize), 0, levelMap[0].length-1);
+  int gZ = constrain(round((pz - blockSize/2) / blockSize), 0, levelMap.length-1);
+  return levelMap[gZ][gX] == 1;
+}
+
+void handleTerminals() {
+  boolean canInteract = false;
+
+  for (int i = terminals.size() - 1; i >= 0; i--) {
+    PVector t = terminals.get(i);
+
+    pushMatrix();
+    translate(t.x, -50, t.z);
+    fill(50);
+    stroke(100);
+    strokeWeight(2);
+    box(60, 100, 60);
+    translate(0, -30, 31);
+    fill(0, 255, 0);
+    noStroke();
+    rect(-20, -15, 40, 30);
+    popMatrix();
+
+    float d = dist(cam.position.x, cam.position.z, t.x, t.z);
+    if (d < 150) {
+      canInteract = true;
+      hint(DISABLE_DEPTH_TEST);
+      pushMatrix();
+      camera();
+      noLights();
+      fill(255);
+      textSize(24);
+      textAlign(CENTER);
+      text("Premi [E] per Riavviare", width/2, height/2 + 50);
+      popMatrix();
+      hint(ENABLE_DEPTH_TEST);
+
+      if (keyPressed && (key == 'e' || key == 'E') && !interactPressed) {
+        terminals.remove(i);
+        terminalsFixed++;
+        updateNarrative();
+        interactPressed = true;
+      }
+      break;
+    }
+  }
+
+  if (!canInteract || !keyPressed || (key != 'e' && key != 'E')) {
+    interactPressed = false;
+  }
+}
+
+void updateNarrative() {
+  if (terminalsFixed == 1) {
+    narrativeText = "Terminale 1 Online. Rilevata anomalia nel settore.";
+    humTone.setFrequency(45);
+    humTone.setWaveform(Waves.SAW);
+  } else if (terminalsFixed == 2) {
+    narrativeText = "Terminale 2 Online. NON GUARDARE DIETRO DI TE.";
+    humTone.setFrequency(35);
+  } else if (terminalsFixed == 3) {
+    narrativeText = "ERRORE CRITICO. RAGGIUNGI L'USCITA.";
+    state = 2;
+    humTone.setFrequency(120);
+    humTone.setWaveform(Waves.SQUARE);
+  }
 }
 
 void renderMap() {
   noStroke();
-
-  for (int z=0; z<H; z++) {
-    for (int x=0; x<W; x++) {
-      float wx = x*block + block/2;
-      float wz = z*block + block/2;
-
-      // floor
-      pushMatrix();
-      translate(wx, 0, wz);
-      fill(60 + ((x+z)%2)*5);
-      box(block, 6, block);
-      popMatrix();
-
-      // ceiling
-      pushMatrix();
-      translate(wx, -block, wz);
-      fill(95);
-      box(block, 6, block);
-      popMatrix();
-
-      if (map[z][x] == 1) {
+  for (int z = 0; z < levelMap.length; z++) {
+    for (int x = 0; x < levelMap[0].length; x++) {
+      if (levelMap[z][x] == 1) {
         pushMatrix();
-        translate(wx, -block/2, wz);
-        fill(130, 120, 100);
-        box(block, block, block);
-        popMatrix();
-      }
+        translate(x * blockSize + blockSize/2, -blockSize/2, z * blockSize + blockSize/2);
 
-      if (map[z][x] == 2) {
-        pushMatrix();
-        translate(wx, -100, wz);
-        fill(exitUnlocked ? color(50, 180, 60) : color(140, 40, 40));
-        box(block*0.8, 200, 40);
+        beginShape(QUADS);
+        textureMode(NORMAL);
+        texture(wallTex);
+        vertex(-blockSize/2, -blockSize/2, blockSize/2, 0, 0);
+        vertex(-blockSize/2, -blockSize/2, -blockSize/2, 1, 0);
+        vertex(-blockSize/2, blockSize/2, -blockSize/2, 1, 1);
+        vertex(-blockSize/2, blockSize/2, blockSize/2, 0, 1);
+        vertex(blockSize/2, -blockSize/2, -blockSize/2, 0, 0);
+        vertex(blockSize/2, -blockSize/2, blockSize/2, 1, 0);
+        vertex(blockSize/2, blockSize/2, blockSize/2, 1, 1);
+        vertex(blockSize/2, blockSize/2, -blockSize/2, 0, 1);
+        vertex(-blockSize/2, -blockSize/2, -blockSize/2, 0, 0);
+        vertex(blockSize/2, -blockSize/2, -blockSize/2, 1, 0);
+        vertex(blockSize/2, blockSize/2, -blockSize/2, 1, 1);
+        vertex(-blockSize/2, blockSize/2, -blockSize/2, 0, 1);
+        vertex(blockSize/2, -blockSize/2, blockSize/2, 0, 0);
+        vertex(-blockSize/2, -blockSize/2, blockSize/2, 1, 0);
+        vertex(-blockSize/2, blockSize/2, blockSize/2, 1, 1);
+        vertex(blockSize/2, blockSize/2, blockSize/2, 0, 1);
+        endShape();
         popMatrix();
       }
     }
   }
 
-  // 3 "fusibili" fake come cubi da raccogliere: aree trigger
-  drawFuseSpot(3, 5);
-  drawFuseSpot(16, 4);
-  drawFuseSpot(17, 16);
-}
-
-void drawFuseSpot(int gx, int gz) {
-  float wx = gx*block + block/2;
-  float wz = gz*block + block/2;
-  pushMatrix();
-  translate(wx, -30 + sin(frameCount*0.08)*5, wz);
-  fill(220, 180, 80);
-  box(30);
-  popMatrix();
-
-  if (dist(cam.position.x, cam.position.z, wx, wz) < 120) {
-    hint(DISABLE_DEPTH_TEST);
-    camera();
-    fill(255);
-    textAlign(CENTER, CENTER);
-    text("Premi E per raccogliere", width/2, height/2 + 50);
-    hint(ENABLE_DEPTH_TEST);
-
-    if (keyPressed && (key=='e' || key=='E')) {
-      // disattiva spot mettendo coordinate fuori mappa
-      if (gx==3 && gz==5) { gx=999; gz=999; }
-      fuses = min(needFuses, fuses+1);
-      if (fuses >= needFuses) {
-        exitUnlocked = true;
-        msg = "Uscita sbloccata";
-      }
-    }
-  }
-}
-
-void doCollision() {
-  float r = 40;
-  int gx = constrain(floor(cam.position.x / block), 0, W-1);
-  int gz = constrain(floor(cam.position.z / block), 0, H-1);
-
-  if (map[gz][gx] == 1 || (map[gz][gx] == 2 && !exitUnlocked)) {
-    // reset soft verso spawn (semplice ma evita pass-through totale)
-    cam.position.x = lerp(cam.position.x, spawn.x, 0.15);
-    cam.position.z = lerp(cam.position.z, spawn.z, 0.15);
-  }
-
-  // clamp mondo
-  cam.position.x = constrain(cam.position.x, block, (W-1)*block);
-  cam.position.z = constrain(cam.position.z, block, (H-1)*block);
-}
-
-void updateEnemy() {
-  PVector d = PVector.sub(new PVector(cam.position.x, 0, cam.position.z), enemy);
-  d.normalize();
-  d.mult(2.6);
-  enemy.add(d);
+  float mapW = levelMap[0].length * blockSize;
+  float mapH = levelMap.length * blockSize;
 
   pushMatrix();
-  translate(enemy.x, -90, enemy.z);
-  rotateY(frameCount*0.07);
-  fill(0);
-  stroke(255, 0, 0);
-  box(70, 170, 50);
+  translate(mapW/2, 0, mapH/2);
+
+  beginShape(QUADS);
+  textureMode(NORMAL);
+  texture(floorTex);
+  vertex(-mapW/2, 0, -mapH/2, 0, 0);
+  vertex(mapW/2, 0, -mapH/2, 20, 0);
+  vertex(mapW/2, 0, mapH/2, 20, 20);
+  vertex(-mapW/2, 0, mapH/2, 0, 20);
+  endShape();
+
+  translate(0, -blockSize, 0);
+  beginShape(QUADS);
+  textureMode(NORMAL);
+  texture(ceilTex);
+  vertex(-mapW/2, 0, -mapH/2, 0, 0);
+  vertex(mapW/2, 0, -mapH/2, 20, 0);
+  vertex(mapW/2, 0, mapH/2, 20, 20);
+  vertex(-mapW/2, 0, mapH/2, 0, 20);
+  endShape();
+
   popMatrix();
 }
 
 void drawHUD() {
   hint(DISABLE_DEPTH_TEST);
+  pushMatrix();
   camera();
+  noLights();
+
   fill(255);
+  textSize(24);
+  textAlign(CENTER, TOP);
+  text(narrativeText, width/2, 20);
+
   textAlign(LEFT, TOP);
-  textSize(20);
-  text("Fusibili: " + fuses + "/" + needFuses, 20, 20);
-  text(msg, 20, 50);
+  text("Terminali: " + terminalsFixed + "/" + maxTerminals, 20, 20);
 
   fill(255, 150);
+  noStroke();
   ellipse(width/2, height/2, 4, 4);
+
+  popMatrix();
   hint(ENABLE_DEPTH_TEST);
+}
+
+void generateTextures() {
+  wallTex = createGraphics(256, 256);
+  wallTex.beginDraw();
+  wallTex.background(150, 145, 130);
+  wallTex.stroke(130, 125, 110);
+  for (int i = 0; i < 800; i++) {
+    wallTex.point((int)random(256), (int)random(256));
+  }
+  wallTex.stroke(120, 116, 105);
+  for (int y = 0; y < 256; y += 32) {
+    wallTex.line(0, y, 256, y);
+  }
+  wallTex.endDraw();
+
+  floorTex = createGraphics(256, 256);
+  floorTex.beginDraw();
+  floorTex.background(70, 68, 62);
+  floorTex.stroke(80, 78, 72);
+  for (int x = 0; x < 256; x += 32) {
+    floorTex.line(x, 0, x, 256);
+  }
+  for (int y = 0; y < 256; y += 32) {
+    floorTex.line(0, y, 256, y);
+  }
+  floorTex.stroke(90, 88, 82, 70);
+  for (int i = 0; i < 500; i++) {
+    floorTex.point((int)random(256), (int)random(256));
+  }
+  floorTex.endDraw();
+
+  ceilTex = createGraphics(256, 256);
+  ceilTex.beginDraw();
+  ceilTex.background(210, 210, 200);
+  ceilTex.noStroke();
+  for (int i = 0; i < 40; i++) {
+    float x = random(30, 226);
+    float y = random(30, 226);
+    ceilTex.fill(235, 235, 220, 210);
+    ceilTex.rect(x - 12, y - 12, 24, 24);
+  }
+  ceilTex.stroke(190, 190, 180, 90);
+  for (int y = 0; y < 256; y += 16) {
+    ceilTex.line(0, y, 256, y);
+  }
+  ceilTex.endDraw();
 }
