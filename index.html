@@ -61,7 +61,7 @@
     if (side === 1) { x = width + 30; y = rand(0, height); }
     if (side === 2) { x = rand(0, width); y = height + 30; }
     if (side === 3) { x = -30; y = rand(0, height); }
-    enemies.push({ x, y, r: rand(14, 24), speed: rand(85, 140) + score * 5 });
+    enemies.push({ x, y, r: rand(14, 24), speed: Math.min(200, rand(85, 140) + score * 4) });
   }
 
   function burst(x, y, count, hue) {
@@ -153,7 +153,7 @@
     }
 
     if (score >= 20) state = "win";
-    if (elapsed >= timeLimit) state = score >= 20 ? "win" : "lose";
+    else if (elapsed >= timeLimit) state = "lose";
   }
 
   function drawGrid() {
@@ -258,7 +258,7 @@
   window.addEventListener("keydown", (e) => {
     const k = e.key.toLowerCase();
     keys.add(k);
-    if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(e.key.toLowerCase())) e.preventDefault();
+    if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) e.preventDefault();
     if ((state === "intro") && (k === " " || k === "enter")) resetGame();
     if ((state === "win" || state === "lose") && k === "r") resetGame();
   });
