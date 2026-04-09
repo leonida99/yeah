@@ -24,6 +24,11 @@
   let score = 0;
   let elapsed = 0;
   const timeLimit = 60;
+  const maxFrameTime = 0.033;
+  const enemyBaseSpeedMin = 85;
+  const enemyBaseSpeedMax = 140;
+  const enemyScoreSpeedMultiplier = 4;
+  const enemyMaxSpeed = 200;
   let flash = 0;
 
   const player = { x: 0, y: 0, r: 16, speed: 290, hp: 3, invuln: 0 };
@@ -61,7 +66,12 @@
     if (side === 1) { x = width + 30; y = rand(0, height); }
     if (side === 2) { x = rand(0, width); y = height + 30; }
     if (side === 3) { x = -30; y = rand(0, height); }
-    enemies.push({ x, y, r: rand(14, 24), speed: Math.min(200, rand(85, 140) + score * 4) });
+    enemies.push({
+      x,
+      y,
+      r: rand(14, 24),
+      speed: Math.min(enemyMaxSpeed, rand(enemyBaseSpeedMin, enemyBaseSpeedMax) + score * enemyScoreSpeedMultiplier)
+    });
   }
 
   function burst(x, y, count, hue) {
@@ -247,7 +257,7 @@
 
   let last = performance.now();
   function loop(now) {
-    const dt = Math.min(0.033, (now - last) / 1000);
+    const dt = Math.min(maxFrameTime, (now - last) / 1000);
     last = now;
     update(dt);
     draw();
