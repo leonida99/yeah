@@ -31,6 +31,11 @@ final float EXIT_REACH_DISTANCE = 150;
 final int ENTITY_TELEPORT_MEMORY_THRESHOLD = 3;
 final int ENTITY_TELEPORT_FRAME_INTERVAL = 360;
 final float ENTITY_TELEPORT_RADIUS = 300;
+final int WHISPER_BASE_DURATION = 130;
+final int WHISPER_DURATION_VARIANCE = 120;
+final float ENTITY_SPEED_AGGRESSIVE = 5.6;
+final float ENTITY_SPEED_BASE = 2.9;
+final float ENTITY_SPEED_FEAR_MULTIPLIER = 0.7;
 
 // =========================
 // MAPPA E MONDO
@@ -388,7 +393,7 @@ void updateWhispers() {
 
   if (frameCount > nextWhisper) {
     activeWhisper = whispers[(int)random(whispers.length)];
-    whisperUntil = frameCount + (int)(130 + random(120));
+    whisperUntil = frameCount + (int)(WHISPER_BASE_DURATION + random(WHISPER_DURATION_VARIANCE));
 
     float gap = 280 - fear * 170;
     nextWhisper = frameCount + (int)(max(80, gap) + random(140));
@@ -437,19 +442,19 @@ void shiftArchitecture() {
   architectureShifted = true;
 
   // Sigilla alcuni corridoi familiari per spezzare il percorso memorizzato.
-  int[][] closePassages = {
-    {5, 3}, {5, 4}, {10, 9}, {14, 13}
+  PVector[] closePassages = {
+    new PVector(5, 3), new PVector(5, 4), new PVector(10, 9), new PVector(14, 13)
   };
   // Apre nuovi varchi innaturali per creare un layout "impossibile".
-  int[][] openPassages = {
-    {7, 2}, {11, 8}, {2, 14}, {14, 10}
+  PVector[] openPassages = {
+    new PVector(7, 2), new PVector(11, 8), new PVector(2, 14), new PVector(14, 10)
   };
 
   for (int i = 0; i < closePassages.length; i++) {
-    setCell(closePassages[i][0], closePassages[i][1], 1);
+    setCell((int)closePassages[i].x, (int)closePassages[i].y, 1);
   }
   for (int i = 0; i < openPassages.length; i++) {
-    setCell(openPassages[i][0], openPassages[i][1], 0);
+    setCell((int)openPassages[i].x, (int)openPassages[i].y, 0);
   }
 }
 
@@ -497,7 +502,7 @@ void updateEntity(boolean aggressive) {
     dz *= inv;
   }
 
-  float speed = aggressive ? 5.6 : 2.9 + fear * 0.7;
+  float speed = aggressive ? ENTITY_SPEED_AGGRESSIVE : ENTITY_SPEED_BASE + fear * ENTITY_SPEED_FEAR_MULTIPLIER;
   entityPos.add(dx * speed, 0, dz * speed);
 
   if (!aggressive && memoriesRecovered >= ENTITY_TELEPORT_MEMORY_THRESHOLD && frameCount % ENTITY_TELEPORT_FRAME_INTERVAL == 0) {
