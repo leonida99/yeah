@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Neon Core Run</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #05070c; font-family: Inter, system-ui, Arial, sans-serif; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+<canvas id="game" aria-label="Neon Core Run game"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  let width = 1280, height = 720, dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+
+  const keys = new Set();
+  let state = "intro"; // intro, playing, win, lose
+  let score = 0;
+  let elapsed = 0;
+  const timeLimit = 60;
+  let flash = 0;
+
+  const player = { x: 0, y: 0, r: 16, speed: 290, hp: 3, invuln: 0 };
+  const cores = [];
+  const enemies = [];
+  const particles = [];
+
+  function resize() {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.style.width = width + "px";
+    canvas.style.height = height + "px";
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function rand(min, max) { return Math.random() * (max - min) + min; }
+  function dist2(ax, ay, bx, by) { const dx = ax - bx, dy = ay - by; return dx * dx + dy * dy; }
+
+  function spawnCore() {
+    const margin = 36;
+    cores.push({
+      x: rand(margin, width - margin),
+      y: rand(margin, height - margin),
+      r: 11
+    });
+  }
+
+  function spawnEnemy() {
+    const side = Math.floor(rand(0, 4));
+    let x = 0, y = 0;
+    if (side === 0) { x = rand(0, width); y = -30; }
+    if (side === 1) { x = width + 30; y = rand(0, height); }
+    if (side === 2) { x = rand(0, width); y = height + 30; }
+    if (side === 3) { x = -30; y = rand(0, height); }
+    enemies.push({ x, y, r: rand(14, 24), speed: rand(85, 140) + score * 5 });
+  }
+
+  function burst(x, y, count, hue) {
+    for (let i = 0; i < count; i++) {
+      const a = rand(0, Math.PI * 2), sp = rand(55, 260);
+      particles.push({
+        x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        life: rand(0.25, 0.8), maxLife: 0.8, hue
+      });
+    }
+  }
+
+  function resetGame() {
+    score = 0;
+    elapsed = 0;
+    flash = 0;
+    cores.length = 0;
+    enemies.length = 0;
+    particles.length = 0;
+    player.x = width * 0.5;
+    player.y = height * 0.5;
+    player.hp = 3;
+    player.invuln = 0;
+    for (let i = 0; i < 5; i++) spawnCore();
+    for (let i = 0; i < 4; i++) spawnEnemy();
+    state = "playing";
+  }
+
+  function update(dt) {
+    if (state !== "playing") return;
+
+    elapsed += dt;
+    player.invuln = Math.max(0, player.invuln - dt);
+    flash = Math.max(0, flash - dt * 2.5);
+
+    let mx = 0, my = 0;
+    if (keys.has("arrowleft") || keys.has("a")) mx -= 1;
+    if (keys.has("arrowright") || keys.has("d")) mx += 1;
+    if (keys.has("arrowup") || keys.has("w")) my -= 1;
+    if (keys.has("arrowdown") || keys.has("s")) my += 1;
+    if (mx || my) {
+      const m = Math.hypot(mx, my);
+      mx /= m; my /= m;
+      player.x += mx * player.speed * dt;
+      player.y += my * player.speed * dt;
+    }
+    player.x = clamp(player.x, player.r, width - player.r);
+    player.y = clamp(player.y, player.r, height - player.r);
+
+    for (let i = cores.length - 1; i >= 0; i--) {
+      const c = cores[i];
+      if (dist2(player.x, player.y, c.x, c.y) <= (player.r + c.r) * (player.r + c.r)) {
+        cores.splice(i, 1);
+        score += 1;
+        burst(c.x, c.y, 16, 165);
+        spawnCore();
+        if (score % 4 === 0) spawnEnemy();
+      }
+    }
+
+    for (const e of enemies) {
+      const dx = player.x - e.x, dy = player.y - e.y;
+      const m = Math.hypot(dx, dy) || 1;
+      e.x += (dx / m) * e.speed * dt;
+      e.y += (dy / m) * e.speed * dt;
+    }
+
+    if (player.invuln <= 0) {
+      for (const e of enemies) {
+        if (dist2(player.x, player.y, e.x, e.y) <= (player.r + e.r) * (player.r + e.r)) {
+          player.hp -= 1;
+          player.invuln = 1.1;
+          flash = 1;
+          burst(player.x, player.y, 22, 5);
+          if (player.hp <= 0) state = "lose";
+          break;
+        }
+      }
+    }
+
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.life -= dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vx *= 0.985;
+      p.vy *= 0.985;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    if (score >= 20) state = "win";
+    if (elapsed >= timeLimit) state = score >= 20 ? "win" : "lose";
+  }
+
+  function drawGrid() {
+    const step = 40;
+    ctx.strokeStyle = "rgba(90,130,255,0.11)";
+    ctx.lineWidth = 1;
+    for (let x = 0; x < width; x += step) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+    }
+    for (let y = 0; y < height; y += step) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
+    }
+  }
+
+  function drawCircle(x, y, r, fill, glow = 0) {
+    if (glow > 0) {
+      ctx.shadowBlur = glow;
+      ctx.shadowColor = fill;
+    }
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  function draw() {
+    const bg = flash > 0 ? `rgba(40, 8, 8, 1)` : `rgba(5, 7, 12, 1)`;
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, width, height);
+    drawGrid();
+
+    if (state === "intro") {
+      drawTitle("NEON CORE RUN", "Collect 20 cores before time runs out.\nAvoid hunter drones.\nMove: WASD / Arrow Keys\nStart: Space / Enter");
+      return;
+    }
+
+    for (const c of cores) drawCircle(c.x, c.y, c.r, "#2bffb7", 12);
+    for (const e of enemies) drawCircle(e.x, e.y, e.r, "#ff4262", 14);
+    drawCircle(player.x, player.y, player.r, player.invuln > 0 ? "#f9f2a5" : "#7fd6ff", 15);
+
+    for (const p of particles) {
+      const a = Math.max(0, p.life / p.maxLife);
+      ctx.fillStyle = `hsla(${p.hue}, 100%, 62%, ${a})`;
+      ctx.fillRect(p.x, p.y, 3, 3);
+    }
+
+    drawHud();
+
+    if (state === "win") drawOverlay("MISSION COMPLETE", "You stabilized the grid.\nPress R to play again.");
+    if (state === "lose") drawOverlay("SYSTEM FAILURE", "Objective not completed.\nPress R to retry.");
+  }
+
+  function drawTitle(title, body) {
+    const g = ctx.createLinearGradient(0, 0, width, height);
+    g.addColorStop(0, "#6db5ff");
+    g.addColorStop(1, "#2bffb7");
+    ctx.fillStyle = g;
+    ctx.font = "700 64px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(title, width * 0.5, height * 0.34);
+    ctx.fillStyle = "#eaf4ff";
+    ctx.font = "500 22px system-ui, sans-serif";
+    for (const [i, line] of body.split("\n").entries()) {
+      ctx.fillText(line, width * 0.5, height * 0.45 + i * 34);
+    }
+  }
+
+  function drawHud() {
+    ctx.fillStyle = "#e9f6ff";
+    ctx.font = "600 20px system-ui, sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(`Cores: ${score}/20`, 22, 34);
+    ctx.fillText(`HP: ${player.hp}`, 22, 62);
+    ctx.textAlign = "right";
+    ctx.fillText(`Time: ${Math.max(0, Math.ceil(timeLimit - elapsed))}`, width - 22, 34);
+  }
+
+  function drawOverlay(title, body) {
+    ctx.fillStyle = "rgba(0,0,0,0.58)";
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    ctx.font = "700 56px system-ui, sans-serif";
+    ctx.fillText(title, width / 2, height * 0.43);
+    ctx.font = "500 24px system-ui, sans-serif";
+    for (const [i, line] of body.split("\n").entries()) {
+      ctx.fillText(line, width / 2, height * 0.53 + i * 34);
+    }
+  }
+
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.033, (now - last) / 1000);
+    last = now;
+    update(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  window.addEventListener("resize", resize);
+  window.addEventListener("keydown", (e) => {
+    const k = e.key.toLowerCase();
+    keys.add(k);
+    if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(e.key.toLowerCase())) e.preventDefault();
+    if ((state === "intro") && (k === " " || k === "enter")) resetGame();
+    if ((state === "win" || state === "lose") && k === "r") resetGame();
+  });
+  window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+
+  resize();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
