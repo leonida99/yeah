@@ -44,6 +44,14 @@ String narrativeText = "Trova e riavvia i 3 Terminali.";
 PVector entityPos;
 PVector prevPos;
 boolean interactPressed = false;
+boolean spawnAssigned = false;
+
+final float INTERACTION_DISTANCE = 150;
+final float ENTITY_CAPTURE_DISTANCE = 100;
+final float ESCAPE_ZONE_RADIUS = 150;
+final float ENTITY_JITTER_MIN = -10;
+final float ENTITY_JITTER_MAX = 10;
+final float MIN_DIRECTION_THRESHOLD = 0.0001f;
 
 void setup() {
   fullScreen(P3D);
@@ -115,12 +123,15 @@ void playChasePhase() {
   handlePhysics();
   renderMap();
 
-  PVector dir = PVector.sub(new PVector(cam.position.x, 0, cam.position.z), new PVector(entityPos.x, 0, entityPos.z));
-  if (dir.magSq() > 0.0001) {
-    dir.normalize();
+  float dx = cam.position.x - entityPos.x;
+  float dz = cam.position.z - entityPos.z;
+  float magSq = dx * dx + dz * dz;
+  if (magSq > MIN_DIRECTION_THRESHOLD) {
+    float invMag = 1.0 / sqrt(magSq);
+    dx *= invMag;
+    dz *= invMag;
   }
-  dir.mult(4.2);
-  entityPos.add(dir.x, 0, dir.z);
+  entityPos.add(dx * 4.2, 0, dz * 4.2);
 
   pushMatrix();
   translate(entityPos.x, -100, entityPos.z);
@@ -129,7 +140,7 @@ void playChasePhase() {
   fill(0);
   stroke(255, 0, 0);
   strokeWeight(3);
-  box(80 + random(-10, 10));
+  box(80 + random(ENTITY_JITTER_MIN, ENTITY_JITTER_MAX));
   popMatrix();
 
   pushMatrix();
@@ -138,11 +149,11 @@ void playChasePhase() {
   box(100);
   popMatrix();
 
-  if (dist(cam.position.x, cam.position.z, entityPos.x, entityPos.z) < 100) {
+  if (dist(cam.position.x, cam.position.z, entityPos.x, entityPos.z) < ENTITY_CAPTURE_DISTANCE) {
     narrativeText = "L'ARCHIVIO TI HA INGHIOTTITO.";
     state = 3;
   }
-  if (dist(cam.position.x, cam.position.z, spawnPos.x, spawnPos.z) < 150) {
+  if (dist(cam.position.x, cam.position.z, spawnPos.x, spawnPos.z) < ESCAPE_ZONE_RADIUS) {
     narrativeText = "CONNESSIONE INTERROTTA.\nSopravvivenza confermata.";
     state = 3;
   }
@@ -171,9 +182,10 @@ void drawOutro() {
 void parseMap() {
   for (int z = 0; z < levelMap.length; z++) {
     for (int x = 0; x < levelMap[0].length; x++) {
-      if (levelMap[z][x] == 3) {
+      if (levelMap[z][x] == 3 && !spawnAssigned) {
         spawnPos = new PVector(x * blockSize + blockSize/2, -100, z * blockSize + blockSize/2);
         cam.position = spawnPos.copy();
+        spawnAssigned = true;
       }
       if (levelMap[z][x] == 2) {
         terminals.add(new PVector(x * blockSize + blockSize/2, -50, z * blockSize + blockSize/2));
@@ -200,9 +212,9 @@ void handlePhysics() {
 }
 
 boolean isWall(float px, float pz) {
-  int gX = constrain(round((px - blockSize/2) / blockSize), 0, levelMap[0].length-1);
-  int gZ = constrain(round((pz - blockSize/2) / blockSize), 0, levelMap.length-1);
-  return levelMap[gZ][gX] == 1;
+  int gridX = constrain(round((px - blockSize/2) / blockSize), 0, levelMap[0].length-1);
+  int gridZ = constrain(round((pz - blockSize/2) / blockSize), 0, levelMap.length-1);
+  return levelMap[gridZ][gridX] == 1;
 }
 
 void handleTerminals() {
@@ -224,7 +236,7 @@ void handleTerminals() {
     popMatrix();
 
     float d = dist(cam.position.x, cam.position.z, t.x, t.z);
-    if (d < 150) {
+    if (d < INTERACTION_DISTANCE) {
       canInteract = true;
       hint(DISABLE_DEPTH_TEST);
       pushMatrix();
@@ -237,7 +249,7 @@ void handleTerminals() {
       popMatrix();
       hint(ENABLE_DEPTH_TEST);
 
-      if (keyPressed && (key == 'e' || key == 'E') && !interactPressed) {
+      if (keyPressed && isInteractKey() && !interactPressed) {
         terminals.remove(i);
         terminalsFixed++;
         updateNarrative();
@@ -247,9 +259,13 @@ void handleTerminals() {
     }
   }
 
-  if (!canInteract || !keyPressed || (key != 'e' && key != 'E')) {
+  if (!canInteract || !keyPressed || !isInteractKey()) {
     interactPressed = false;
   }
+}
+
+boolean isInteractKey() {
+  return key == 'e' || key == 'E';
 }
 
 void updateNarrative() {
