@@ -193,7 +193,12 @@ void parseMap() {
       }
     }
   }
-  entityPos = new PVector((levelMap[0].length/2) * blockSize, 0, (levelMap.length/2) * blockSize);
+  if (!spawnAssigned) {
+    spawnPos = new PVector(blockSize + blockSize/2, -100, blockSize + blockSize/2);
+    cam.position = spawnPos.copy();
+    spawnAssigned = true;
+  }
+  entityPos = new PVector((levelMap[0].length * blockSize) / 2.0, 0, (levelMap.length * blockSize) / 2.0);
 }
 
 void handlePhysics() {
@@ -212,8 +217,8 @@ void handlePhysics() {
 }
 
 boolean isWall(float px, float pz) {
-  int gridX = constrain(round((px - blockSize/2) / blockSize), 0, levelMap[0].length-1);
-  int gridZ = constrain(round((pz - blockSize/2) / blockSize), 0, levelMap.length-1);
+  int gridX = constrain(floor(px / blockSize), 0, levelMap[0].length-1);
+  int gridZ = constrain(floor(pz / blockSize), 0, levelMap.length-1);
   return levelMap[gridZ][gridX] == 1;
 }
 
