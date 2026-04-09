@@ -801,9 +801,8 @@ void generateTextures() {
   ceilTex.endDraw();
 }
 
-void stop() {
+void dispose() {
   if (humTone != null && out != null) humTone.unpatch(out);
   if (out != null) out.close();
   if (minim != null) minim.stop();
-  super.stop();
 }
